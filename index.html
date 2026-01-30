@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pohang Makers Map - Light & Mobile</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+        
+        html, body { height: 100%; margin: 0; padding: 0; font-family: 'Noto Sans KR', sans-serif; color: #333; overflow: hidden; }
+        
+        /* [기본 레이아웃: PC] 좌우 배치 */
+        body { display: flex; flex-direction: row; }
+        #map { flex: 2; height: 100%; background-color: #f8f9fa; z-index: 1; }
+        
+        /* 사이드바 (PC) */
+        #sidebar { 
+            flex: 1; min-width: 400px; height: 100%; 
+            background: #fff;
+            position: relative; 
+            box-shadow: -2px 0 10px rgba(0,0,0,0.1); 
+            z-index: 2;
+        }
+
+        /* [모바일 최적화 미디어 쿼리] */
+        @media (max-width: 768px) {
+            body { flex-direction: column; } /* 세로 배치로 변경 */
+            
+            #map { 
+                flex: none; 
+                height: 60%; /* 지도가 화면의 60% 차지 */
+                width: 100%; 
+            }
+
+            #sidebar { 
+                flex: none; 
+                width: 100%; 
+                min-width: 0; 
+                height: 40%; /* 하단 40% 차지 */
+                box-shadow: 0 -4px 15px rgba(0,0,0,0.1);
+                border-top: 1px solid #eee;
+            }
+
+            /* 모바일에서 리스트 아이템 터치하기 좋게 넓힘 */
+            .company-item { width: 100% !important; padding: 12px 5px !important; font-size: 15px !important; }
+            
+            /* 타이틀 작게 조정 */
+            .map-title-overlay { top: 15px; left: 15px; transform: scale(0.85); transform-origin: top left; }
+            
+            /* 상세화면 패딩 조정 */
+            .detail-view { padding: 30px 25px !important; }
+            .detail-name { font-size: 24px !important; }
+        }
+
+        /* UI 요소 디자인 (밝은 버전) */
+        .map-title-overlay { position: absolute; top: 30px; left: 30px; z-index: 1000; text-align: center; pointer-events: none; }
+        .title-bubble { background: #333; color: white; padding: 8px 25px; border-radius: 20px; font-weight: bold; font-size: 14px; display: inline-block; margin-bottom: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .map-label { background: #fff; border: 2px solid #333; padding: 5px 35px; border-radius: 20px; font-weight: bold; font-size: 16px; display: inline-block; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+
+        .list-view { padding: 40px; height: 100%; overflow-y: auto; box-sizing: border-box; background: white; }
+        .company-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; }
+        .company-item { width: 50%; margin-bottom: 15px; cursor: pointer; font-size: 14px; display: flex; align-items: center; transition: color 0.2s; border-bottom: 1px solid #f0f0f0; padding-bottom: 5px; }
+        .company-item:hover { color: #50bcdf; font-weight: bold; }
+        .company-id-num { display: inline-block; width: 25px; color: #888; font-size: 12px; font-weight: bold; }
+
+        /* 상세 화면: 배경색이 카테고리 색상으로 변함 */
+        .detail-view { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            color: white; padding: 50px 35px; box-sizing: border-box; display: none; 
+            z-index: 10; overflow-y: auto;
+            transition: background-color 0.3s;
+        }
+        .close-btn { position: absolute; top: 20px; right: 20px; background: none; border: none; color: white; font-size: 30px; cursor: pointer; opacity: 0.8; }
+        .close-btn:hover { opacity: 1; }
+
+        .detail-header { display: flex; align-items: center; margin-bottom: 2px; } 
+        .detail-id-box { 
+            font-size: 20px; border: 2px solid white; width: 44px; height: 44px; 
+            display: flex; align-items: center; justify-content: center; 
+            border-radius: 50%; margin-right: 15px; font-weight: bold; flex-shrink: 0;
+            line-height: 1; box-sizing: border-box;
+        }
+        .detail-name { font-size: 26px; font-weight: bold; text-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .detail-subtitle { font-size: 14px; opacity: 0.9; margin-bottom: 20px; padding-left: 60px; font-weight: 400; } 
+        
+        .info-item { display: flex; align-items: flex-start; margin-bottom: 5px; font-size: 14px; } 
+        .info-icon { margin-right: 12px; font-size: 16px; width: 20px; text-align: center; }
+        
+        .section-title { font-weight: bold; font-size: 15px; margin-top: 25px; margin-bottom: 8px; border-left: 3px solid white; padding-left: 10px; }
+        .section-content { font-size: 13px; line-height: 1.6; opacity: 0.95; margin-bottom: 10px; }
+
+        /* 마커 디자인 */
+        .custom-marker {
+            width: 36px; height: 36px; border: 2px solid white; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .marker-active .custom-marker { transform: scale(1.4); border-color: #333; z-index: 999 !important; }
+    </style>
+</head>
+<body>
+
+<div class="map-title-overlay">
+    <div class="title-bubble">2022-2026</div><br>
+    <div class="map-label">MAP</div>
+</div>
+
+<div id="map"></div>
+
+<div id="sidebar">
+    <div class="list-view" id="listView">
+        <h2 style="margin: 0 0 20px 0; font-size: 18px; border-bottom: 2px solid #333; padding-bottom: 10px;">참여 기업 리스트</h2>
+        <ul class="company-list" id="main-company-list"></ul>
+    </div>
+
+    <div class="detail-view" id="detailView">
+        <button class="close-btn" onclick="showListView()">&times;</button>
+        <div class="detail-header">
+            <div class="detail-id-box" id="detailId">0</div>
+            <div class="detail-name" id="detailName">업체명</div>
+        </div>
+        <div class="detail-subtitle" id="detailSubTitle">소제목</div>
+        <div class="info-item"><div class="info-icon">📍</div><div class="info-text" id="detailAddress">주소</div></div>
+        <div class="info-item"><div class="info-icon">📞</div><div class="info-text" id="detailPhone">전화번호</div></div>
+        <div class="section-title">기본 설명</div><div class="section-content" id="detailDesc">설명</div>
+        <div class="section-title">머신아트랩 관련성</div><div class="section-content" id="detailLabRelation">관련성</div>
+        <div class="section-title">세부 참여 내용</div><div class="section-content" id="detailParticipation">참여내용</div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const categorySettings = { 
+    '유압·유공압': { color: '#51E155', icon: `<svg viewBox="0 0 24 24" fill="white" width="22" height="22"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z" /></svg>` }, 
+    '철 공급·정밀가공': { color: '#FDAE3B', icon: `<svg viewBox="0 0 24 24" fill="white" width="22" height="22"><path d="M5 4H19V7C16 7 14 9.5 14 12C14 14.5 16 17 19 17V20H5V17C8 17 10 14.5 10 12C10 9.5 8 7 5 7V4Z" /></svg>` }, 
+    '공구·MRO': { color: '#FE297B', icon: `<svg viewBox="0 0 24 24" fill="white" width="22" height="22"><path d="M22.7,19L13.6,9.9C14.5,7.6 14,4.9 12.1,3C10.1,1 7.1,0.6 4.7,1.7L9,6L6,9L1.7,4.7C0.6,7.1 1,10.1 3,12.1C4.9,14 7.6,14.5 9.9,13.6L19,22.7L22.7,19Z" /></svg>` }, 
+    '도료·미술자재': { color: '#4FB7FE', icon: `<svg viewBox="0 0 24 24" fill="white" width="22" height="22"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22C13.1,22 14,21.1 14,20C14,19.5 13.8,19.1 13.5,18.7C13.2,18.4 13,18 13,17.5A1.5,1.5 0 0,1 14.5,16H16A5,5 0 0,0 21,11C21,6 17,2 12,2M6.5,10C5.7,10 5,9.3 5,8.5C5,7.7 5.7,7 6.5,7C7.3,7 8,7.7 8,8.5C8,9.3 7.3,10 6.5,10M9.5,6C8.7,6 8,5.3 8,4.5C8,3.7 8.7,3 9.5,3C10.3,3 11,3.7 11,4.5C11,5.3 10.3,6 9.5,6M14.5,6C13.7,6 13,5.3 13,4.5C13,3.7 13.7,3 14.5,3C15.3,3 16,3.7 16,4.5C16,5.3 15.3,6 14.5,6M17.5,10C16.7,10 16,9.3 16,8.5C16,7.7 16.7,7 17.5,7C18.3,7 19,7.7 19,8.5C19,9.3 18.3,10 17.5,10Z" /></svg>` } 
+    };
+
+    const companies = [
+        { category: '유압·유공압', name: '서원유공압시스템', lat: 35.9100, lng: 128.5900, addr: '대구 북구 유통단지로 16', tel: '053-604-0809', subTitle: '유압 실린더 및 밸브 제작', desc: '다양한 산업 현장에 맞춤형 유압 실린더와 제어 밸브를 제작하여 공급합니다.', labRelation: '특수 규격의 유압 부품 제작 가능 여부를 확인하고 협력합니다.', participation: '머신아트 프로젝트에 필요한 비규격 소형 유압 유닛의 시제품을 제작했습니다.' },
+        { category: '유압·유공압', name: '(주)현대 FA', lat: 36.0020, lng: 129.3420, addr: '경북 포항시 남구 연일읍 형산강남로 418번길 65', tel: '054-285-6318', subTitle: '공장 자동화 유압 솔루션', desc: '자동화 공정의 유압 및 공압 시스템을 설계하고 관리하는 기술 중심 기업입니다.', labRelation: '대형 조형물의 안정적인 구동을 위한 시스템 통합 자문을 담당합니다.', participation: '메인 구동부의 유압 라인 배치 및 누유 방지를 위한 하우징 설계에 참여했습니다.' },
+        { category: '유압·유공압', name: '천지종합상사', lat: 36.0190, lng: 129.3490, addr: '경북 포항시 남구 대해로 121', tel: '054-277-1233', subTitle: '고압 호스 및 유압 피팅 전문', desc: '다양한 압력을 견디는 유압 호스와 연결 부속품을 전문적으로 취급합니다.', labRelation: '복합적인 경로 연결을 위한 자재 공급 및 연결 자문을 제공합니다.', participation: '야외 설치를 고려한 고성능 내후성 고압 호스 일체를 공급했습니다.' },
+        { category: '유압·유공압', name: '대진유압정밀', lat: 35.901636, lng: 128.583501, addr: '대구 북구 침산로67길 50', tel: '053-253-1078', subTitle: '정밀 유압 가공 및 유지보수', desc: '정밀한 가공 기술을 바탕으로 산업용 기기 수리 및 제작을 전문으로 합니다.', labRelation: '정밀한 수치가 필요한 구동부 금속 가공을 협력합니다.', participation: '유압 실린더를 작품 본체에 고정하기 위한 특수 마운트 브라켓 가공을 수행했습니다.' },
+        { category: '철 공급·정밀가공', name: '강변철재', lat: 36.0025, lng: 129.3415, addr: '경북 포항시 남구 연일읍 형산강남로 418번길 54-1', tel: '054-286-2100', subTitle: '조형물용 철제 및 비철금속', desc: '대형 철강재 및 정밀 가공용 철제 재료를 전문적으로 유통합니다.', labRelation: '작품의 뼈대가 되는 주요 금속 재료의 수급처입니다.', participation: '작품 프레임 제작에 필요한 H빔 및 후판의 정밀 절단 및 배송을 담당했습니다.' },
+        { category: '철 공급·정밀가공', name: '세창기업', lat: 36.0028, lng: 129.3410, addr: '경북 포항시 남구 연일읍 형산강남로 418번길 43', tel: '054-285-8772', subTitle: '레이저 컷팅 및 금속 가공', desc: '최첨단 레이저 장비를 활용하여 철판을 정밀하게 가공하는 서비스를 제공합니다.', labRelation: '복잡한 도면을 실제 금속 판재로 구현하는 공정 파트너입니다.', participation: '외장 패널의 복잡한 문양을 레이저 컷팅으로 구현하여 미학적 완성도를 높였습니다.' },
+        { category: '철 공급·정밀가공', name: '삼보정밀', lat: 36.0410, lng: 129.3710, addr: '경북 포항시 북구 칠성천길 82', tel: '054-241-5075', subTitle: '철제 정밀 가공 및 구조 설계', desc: '철제 용접 및 정밀 가공 기술을 바탕으로 산업용 기기 수리 및 제작을 전문으로 합니다.', labRelation: '주재료인 철파이프 공급과 더불어, 조형물의 구조적 안정성을 위한 기술 자문 및 부품 설계를 지원합니다.', participation: '이아피의 열 제어를 위한 쿨링 파이프 도입 제안 및 포항 I 조형물 지지대의 정밀 베어링 제작을 담당했습니다.' },
+        { category: '철 공급·정밀가공', name: '금오철강', lat: 36.0050, lng: 129.3810, addr: '경북 포항시 남구 연일읍 철강로 107번길 8', tel: '054-286-2259', subTitle: '철강 유통 및 가공', desc: '포항 철강단지에 위치하여 고품질의 철강 재료를 유통하고 1차 가공합니다.', labRelation: '대량의 금속 재료를 합리적인 비용으로 공급받는 협력 관계입니다.', participation: '대형 실외 설치물의 하단 지지 구조물용 강재 일체를 공급했습니다.' },
+        { category: '공구·MRO', name: '포항종합상사', lat: 36.0385, lng: 129.3655, addr: '경북 포항시 북구 중앙로 40-1', tel: '054-283-3598', subTitle: '산업 및 부품 총판', desc: '산업 현장에 필요한 기계공구, 안전용품, 소모품 외 모든 제품을 취급합니다.', labRelation: '작품 조립과 현장 설치를 위한 물품 공급 및 예술가들이 필요로 하는 제품을 찾아 구해주는 구매처입니다.', participation: '일반 산업현장에서 잘 사용하지 않는 특수한 부품들을 인터넷 해외직구, 혹은 타 업체에서 구입해서 공급 했습니다.' },
+        { category: '공구·MRO', name: '(주)동성공구백화점', lat: 36.0060, lng: 129.3820, addr: '경북 포항시 남구 철강로 182', tel: '054-285-9536', subTitle: '대형 공구 및 기구 전문매장', desc: '방대한 규모의 매장에 다양한 브랜드의 산업용 기계 공구를 보유하고 있습니다.', labRelation: '최신 공구 기술과 장비에 대한 정보를 얻는 기술 정보처입니다.', participation: '금속 표면 마감 작업(그라인딩)을 위한 대형 산업용 연마 장비를 공급했습니다.' },
+        { category: '공구·MRO', name: '대성공구사', lat: 36.0420, lng: 129.3705, addr: '경북 포항시 북구 칠성로 7', tel: '054-247-6896', subTitle: '용접 및 배관 장비 전문', desc: '용접기, 용접봉 및 배관 작업용 특수 공구를 전문적으로 판매합니다.', labRelation: '금속 프레임 용접 기술 및 재료 자문을 제공합니다.', participation: '특수 합금 용접에 필요한 고성능 용접기 및 안전 장비를 대여 및 지원했습니다.' },
+        { category: '공구·MRO', name: '(주)세원상사', lat: 36.0425, lng: 129.3715, addr: '경북 포항시 북구 칠성로 19', tel: '054-241-2785', subTitle: '산업 기자재 및 소모품 납품', desc: '철강 공단에 필요한 다양한 산업 기자재와 안전용품을 납품합니다.', labRelation: '현장 작업자의 안전 및 소모성 부품 수급을 담당합니다.', participation: '작업 현장 안전펜스 및 작품 내부에 들어가는 각종 나사 및 베어링 소모품을 공급했습니다.' },
+        { category: '도료·미술자재', name: '포항문구센터', lat: 36.0415, lng: 129.3585, addr: '경북 포항시 북구 새천년대로 1001번길 3', tel: '0507-1388-8856', subTitle: '물감, 석고, 페인트, 기타 미술도료', desc: '지역 내 최대 규모의 문구 및 미술 전문 재료를 갖추고 있습니다.', labRelation: '표면 질감 표현 및 모형 제작에 필요한 기본 재료 수급처입니다.', participation: '실험 시제품의 표면 질감을 내기 위한 특수 석고와 도료 재료를 공급했습니다.' },
+        { category: '도료·미술자재', name: '삼화페인트', lat: 36.0450, lng: 129.3720, addr: '경북 포항시 북구 대신로 3', tel: '054-232-0027', subTitle: '전문가용 도료 및 조색 서비스', desc: '산업용부터 예술용까지 정밀한 조색이 가능한 페인트 전문점입니다.', labRelation: '작품의 최종 시각적 효과인 색채 연출 및 코팅 자문을 제공합니다.', participation: '거대 조형물의 야외 변색 방지를 위한 UV 차단 기능성 페인트 조색을 지원했습니다.' }
+    ];
+
+    const map = L.map('map', { zoomControl: false });
+    
+    // 밝은 테마의 지도 타일 사용
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        maxZoom: 20
+    }).addTo(map);
+
+    let currentPolyline = null;
+    let selectedMarker = null;
+
+    function init() {
+        const listUl = document.getElementById('main-company-list');
+        const bounds = L.latLngBounds(); 
+
+        companies.forEach((company, index) => {
+            const globalId = index + 1;
+            const setting = categorySettings[company.category]; 
+
+            const customIcon = L.divIcon({
+                className: '',
+                html: `<div class="custom-marker" style="background:${setting.color};">
+                         ${setting.icon}
+                       </div>`,
+                iconSize: [36, 36], iconAnchor: [18, 18]
+            });
+            const marker = L.marker([company.lat, company.lng], { icon: customIcon }).addTo(map);
+            marker.on('click', () => handleSelect(marker, company, globalId));
+            bounds.extend([company.lat, company.lng]);
+
+            const li = document.createElement('li');
+            li.className = 'company-item';
+            li.innerHTML = `<span class="company-id-num">${globalId}</span> ${company.name}`;
+            li.onclick = () => handleSelect(marker, company, globalId);
+            listUl.appendChild(li);
+        });
+        map.fitBounds(bounds, { padding: [50, 50] });
+    }
+
+    function handleSelect(marker, company, displayId) {
+        if (selectedMarker) L.DomUtil.removeClass(selectedMarker.getElement(), 'marker-active');
+        L.DomUtil.addClass(marker.getElement(), 'marker-active');
+        selectedMarker = marker;
+
+        const setting = categorySettings[company.category];
+        const detailView = document.getElementById('detailView');
+        
+        // 상세 화면 배경색을 카테고리 색상으로 변경
+        detailView.style.backgroundColor = setting.color;
+        
+        document.getElementById('detailId').innerText = displayId;
+        document.getElementById('detailName').innerText = company.name;
+        document.getElementById('detailSubTitle').innerText = company.subTitle;
+        document.getElementById('detailAddress').innerText = company.addr;
+        document.getElementById('detailPhone').innerText = company.tel;
+        document.getElementById('detailDesc').innerText = company.desc;
+        document.getElementById('detailLabRelation').innerText = company.labRelation;
+        document.getElementById('detailParticipation').innerText = company.participation;
+
+        document.getElementById('listView').style.display = 'none';
+        detailView.style.display = 'block';
+
+        // 모바일: 상세창이 뜰 때 지도의 중심을 살짝 위로 이동
+        if (window.innerWidth <= 768) {
+            map.setView([company.lat, company.lng], 14, { paddingBottom: window.innerHeight * 0.4 });
+        } else {
+            map.setView([company.lat, company.lng], 14);
+        }
+        
+        setTimeout(() => drawLinkLine(marker, company), 100); 
+    }
+
+    function drawLinkLine(marker, company) {
+        if (currentPolyline) map.removeLayer(currentPolyline);
+        const updateLine = () => {
+            const markerLatLng = marker.getLatLng();
+            let panelPoint;
+            
+            // [반응형 로직] 화면 크기에 따라 연결선 도착 지점 변경
+            if (window.innerWidth <= 768) {
+                // 모바일: 지도의 하단 중앙
+                panelPoint = map.containerPointToLatLng(L.point(map.getSize().x / 2, map.getSize().y));
+            } else {
+                // PC: 지도의 우측 중앙
+                panelPoint = map.containerPointToLatLng(L.point(map.getSize().x, map.getSize().y / 2));
+            }
+
+            currentPolyline.setLatLngs([markerLatLng, panelPoint]);
+        };
+        currentPolyline = L.polyline([marker.getLatLng(), marker.getLatLng()], {
+            color: categorySettings[company.category].color, weight: 4, opacity: 0.8
+        }).addTo(map);
+        updateLine();
+        map.off('move', updateLine);
+        map.on('move', updateLine);
+    }
+
+    function showListView() {
+        if (currentPolyline) { map.removeLayer(currentPolyline); currentPolyline = null; }
+        if (selectedMarker) { L.DomUtil.removeClass(selectedMarker.getElement(), 'marker-active'); selectedMarker = null; }
+        document.getElementById('detailView').style.display = 'none';
+        document.getElementById('listView').style.display = 'block';
+        const bounds = L.latLngBounds(companies.map(c => [c.lat, c.lng]));
+        map.fitBounds(bounds, { padding: [50, 50] });
+    }
+
+    init();
+</script>
+</body>
+</html>
