@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pohang Makers Map - Light & Mobile</title>
+    <title>Pohang Makers Map - Z-Index Fix</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
@@ -25,11 +25,11 @@
 
         /* [모바일 최적화 미디어 쿼리] */
         @media (max-width: 768px) {
-            body { flex-direction: column; } /* 세로 배치로 변경 */
+            body { flex-direction: column; }
             
             #map { 
                 flex: none; 
-                height: 60%; /* 지도가 화면의 60% 차지 */
+                height: 60%; 
                 width: 100%; 
             }
 
@@ -37,23 +37,18 @@
                 flex: none; 
                 width: 100%; 
                 min-width: 0; 
-                height: 40%; /* 하단 40% 차지 */
+                height: 40%; 
                 box-shadow: 0 -4px 15px rgba(0,0,0,0.1);
                 border-top: 1px solid #eee;
             }
 
-            /* 모바일에서 리스트 아이템 터치하기 좋게 넓힘 */
             .company-item { width: 100% !important; padding: 12px 5px !important; font-size: 15px !important; }
-            
-            /* 타이틀 작게 조정 */
             .map-title-overlay { top: 15px; left: 15px; transform: scale(0.85); transform-origin: top left; }
-            
-            /* 상세화면 패딩 조정 */
             .detail-view { padding: 30px 25px !important; }
             .detail-name { font-size: 24px !important; }
         }
 
-        /* UI 요소 디자인 (밝은 버전) */
+        /* UI 요소 디자인 */
         .map-title-overlay { position: absolute; top: 30px; left: 30px; z-index: 1000; text-align: center; pointer-events: none; }
         .title-bubble { background: #333; color: white; padding: 8px 25px; border-radius: 20px; font-weight: bold; font-size: 14px; display: inline-block; margin-bottom: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
         .map-label { background: #fff; border: 2px solid #333; padding: 5px 35px; border-radius: 20px; font-weight: bold; font-size: 16px; display: inline-block; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
@@ -64,7 +59,6 @@
         .company-item:hover { color: #50bcdf; font-weight: bold; }
         .company-id-num { display: inline-block; width: 25px; color: #888; font-size: 12px; font-weight: bold; }
 
-        /* 상세 화면: 배경색이 카테고리 색상으로 변함 */
         .detail-view { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
             color: white; padding: 50px 35px; box-sizing: border-box; display: none; 
@@ -97,7 +91,8 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
-        .marker-active .custom-marker { transform: scale(1.4); border-color: #333; z-index: 999 !important; }
+        /* 중요: CSS만으로는 Leaflet의 레이어 순서를 바꿀 수 없습니다. JS에서 setZIndexOffset을 사용합니다. */
+        .marker-active .custom-marker { transform: scale(1.4); border-color: #333; }
     </style>
 </head>
 <body>
@@ -158,7 +153,6 @@
 
     const map = L.map('map', { zoomControl: false });
     
-    // 밝은 테마의 지도 타일 사용
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; OpenStreetMap &copy; CARTO',
         maxZoom: 20
@@ -196,14 +190,20 @@
     }
 
     function handleSelect(marker, company, displayId) {
-        if (selectedMarker) L.DomUtil.removeClass(selectedMarker.getElement(), 'marker-active');
+        // 1. 기존 선택된 마커가 있다면 -> 일반 상태로 되돌리고 Z-Index 초기화
+        if (selectedMarker) {
+            L.DomUtil.removeClass(selectedMarker.getElement(), 'marker-active');
+            selectedMarker.setZIndexOffset(0); // 순서 초기화 (중요)
+        }
+        
+        // 2. 새로 선택된 마커 -> 활성화 및 Z-Index 최상단으로 설정
         L.DomUtil.addClass(marker.getElement(), 'marker-active');
+        marker.setZIndexOffset(1000); // 1000만큼 앞으로 튀어나옴 (중요)
         selectedMarker = marker;
 
         const setting = categorySettings[company.category];
         const detailView = document.getElementById('detailView');
         
-        // 상세 화면 배경색을 카테고리 색상으로 변경
         detailView.style.backgroundColor = setting.color;
         
         document.getElementById('detailId').innerText = displayId;
@@ -218,7 +218,6 @@
         document.getElementById('listView').style.display = 'none';
         detailView.style.display = 'block';
 
-        // 모바일: 상세창이 뜰 때 지도의 중심을 살짝 위로 이동
         if (window.innerWidth <= 768) {
             map.setView([company.lat, company.lng], 14, { paddingBottom: window.innerHeight * 0.4 });
         } else {
@@ -234,12 +233,9 @@
             const markerLatLng = marker.getLatLng();
             let panelPoint;
             
-            // [반응형 로직] 화면 크기에 따라 연결선 도착 지점 변경
             if (window.innerWidth <= 768) {
-                // 모바일: 지도의 하단 중앙
                 panelPoint = map.containerPointToLatLng(L.point(map.getSize().x / 2, map.getSize().y));
             } else {
-                // PC: 지도의 우측 중앙
                 panelPoint = map.containerPointToLatLng(L.point(map.getSize().x, map.getSize().y / 2));
             }
 
@@ -255,7 +251,14 @@
 
     function showListView() {
         if (currentPolyline) { map.removeLayer(currentPolyline); currentPolyline = null; }
-        if (selectedMarker) { L.DomUtil.removeClass(selectedMarker.getElement(), 'marker-active'); selectedMarker = null; }
+        
+        // 목록으로 돌아갈 때도 선택된 마커 우선순위 초기화
+        if (selectedMarker) { 
+            L.DomUtil.removeClass(selectedMarker.getElement(), 'marker-active'); 
+            selectedMarker.setZIndexOffset(0); // 순서 초기화
+            selectedMarker = null; 
+        }
+        
         document.getElementById('detailView').style.display = 'none';
         document.getElementById('listView').style.display = 'block';
         const bounds = L.latLngBounds(companies.map(c => [c.lat, c.lng]));
